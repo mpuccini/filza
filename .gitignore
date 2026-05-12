@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# Logs
+*.log
+npm-debug.log*
+
+# Output di test / sample locali
+test-output/
+*.local.json
+
+# Eventuali installazioni di librerie (CDN-only, ma se in futuro npm)
+node_modules/
+package-lock.json
+
+# Backup
+*.bak
+*.orig
