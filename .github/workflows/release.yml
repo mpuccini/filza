@@ -1,0 +1,37 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    name: Crea ZIP e pubblica Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Crea ZIP di distribuzione
+        run: |
+          zip -r "filza-${{ github.ref_name }}.zip" \
+            index.html css/ js/ \
+            avvia_filza.bat filza_server.ps1 \
+            GUIDA_UTENTE.txt README.md
+
+      - name: Pubblica GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Filza ${{ github.ref_name }}"
+          body: |
+            ## Installazione
+
+            1. Scarica `filza-${{ github.ref_name }}.zip`
+            2. Estrai la cartella dove preferisci (Desktop, Documenti…)
+            3. Doppio clic su `avvia_filza.bat`
+
+            **Requisiti:** Windows 10/11 · Microsoft Edge o Google Chrome
+          files: filza-${{ github.ref_name }}.zip
