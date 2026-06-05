@@ -1,172 +1,181 @@
 # Filza
 
-**Generatore METS ECO-MiC per archivi storici digitalizzati.**
+**Generatore METS ECO-MiC 1.2 per archivi storici digitalizzati.**
 
 Filza è un'applicazione web standalone che produce metadati METS conformi al
 profilo **ECO-MiC 1.2** (Istituto centrale per la digitalizzazione del
-patrimonio culturale - MiC) a partire da cartelle di scansioni organizzate
-secondo le linee guida ICDP-PND.
+patrimonio culturale — MiC) a partire da un foglio Excel compilato dagli
+archivisti o da cartelle di scansioni organizzate secondo le linee guida ICDP-PND.
 
-Non richiede backend, build step, server applicativo. Tutto gira nel browser.
+**Zero backend. Zero build step. Zero installazioni.** Tutto gira nel browser.
 
-## Convenzione cartelle attesa
+---
 
-Filza riconosce due convenzioni:
+## Avvio
+
+### Windows (archivisti)
+Doppio clic su `avvia_filza.bat`. Si avvia automaticamente un server locale e
+si apre Microsoft Edge. Vedi `GUIDA_UTENTE.txt` per le istruzioni passo-passo.
+
+### Sviluppo / macOS / Linux
+```bash
+cd filza/
+python3 -m http.server 8080
+# poi apri http://localhost:8080 in Chrome o Edge
+```
+
+> **Browser richiesto:** Chrome 86+ o Edge 86+.  
+> Firefox non supporta la File System Access API (selezione cartelle e scrittura XML su disco).
+
+---
+
+## Modalità di utilizzo
+
+### 1 · Importa da Excel (batch, raccomandata)
+Flusso principale per campagne di digitalizzazione multi-documento:
+
+1. Gli archivisti compilano il file `Modello_MetadatiScansioni.xlsx`
+   (fogli **Documento** + **Scansioni**) con i metadati di ogni unità documentaria.
+2. In Filza: tab **Importa da Excel** → trascina l'Excel → seleziona la cartella
+   root delle scansioni → avvia l'elaborazione.
+3. Per ogni unità documentaria viene generato e scritto su disco:
+   `<CodIst>+<CodOgg>/mets/<CodIst>+<CodOgg>.xml`
+4. Ogni XML può essere validato automaticamente contro l'API Cineca ECO-MiC.
+5. Al termine: esporta il log CSV con stato e risultati di validazione.
+
+**Checkpoint automatico:** se il processo viene interrotto, Filza riprende
+dall'ultima unità elaborata.
+
+**Struttura cartelle attesa:**
+```
+root/
+├── Modello_MetadatiScansioni.xlsx
+├── IT-RMB576+PFR2_4/           ← <CodIst>+<CodOgg>
+│   ├── dng/
+│   ├── tiff/
+│   ├── jpg/
+│   └── mets/                   ← creata da Filza
+│       └── IT-RMB576+PFR2_4.xml
+└── IT-RMB576+PFR2_5/
+    └── ...
+```
+
+Supporta anche strutture annidate (`root/<CodIst>/<CodIst>+<CodOgg>/`).
+
+### 2 · Singola cartella (interattiva)
+Per generare o ispezionare il METS di una singola unità documentaria:
+
+1. Tab **Genera METS (singolo)** → configura un Ente in **Gestione Archivi**.
+2. Trascina la cartella `<CodIst>+<CodOgg>/` nella dropzone.
+3. Filza pre-popola codice istituto e codice oggetto dal nome cartella.
+4. Compila i metadati, visualizza il preview XML, valida, esporta.
+
+---
+
+## Struttura cartelle e nomenclatura PND
 
 ### Convenzione PND/ECO-MiC (raccomandata)
 
 ```
-<CodiceIstituto>+<CodiceOggetto>/        ← es. IT-RMB576+PFR2_4/
-├── dng/                                 ← master RAW       → fileGrp USE="ARCHIVE"
-│   └── IT-RMB576+PFR2_4+00001.dng       ← 5 cifre pure
-├── tiff/                                ← master TIFF      → fileGrp USE="SERVICE"
-│   └── IT-RMB576+PFR2_4+00001.tif
-├── jpg/                                 ← derivati JPEG    → fileGrp USE="HIGH"
-│   └── IT-RMB576+PFR2_4+00001.jpg
-├── icc/                                 ← profili colore   → fileGrp USE="STORAGE"
-│   └── AdobeRGB1998.icc
-├── logs/                                ← log scansione    (ignorato in fileSec)
-│   └── scan_log.txt
-└── mets/                                ← output Filza     (ignorato in fileSec)
-    └── METS_IT-RMB576+PFR2_4.xml
+<CodIst>+<CodOgg>/            es. IT-RMB576+PFR2_4/
+├── dng/                      master RAW         → fileGrp USE="ARCHIVE"
+├── tiff/                     master TIFF        → fileGrp USE="SERVICE"
+├── jpg/                      derivati JPEG      → fileGrp USE="HIGH"
+├── icc/                      profili colore     → fileGrp USE="STORAGE"
+├── logs/                     log scansione      (ignorato in fileSec)
+└── mets/                     output Filza       (ignorato in fileSec)
 ```
-
-Riferimento: [Linee guida ICDP-PND, *Nomenclatura degli oggetti digitali*](https://docs.italia.it/italia/icdp/icdp-pnd-digitalizzazione-docs/).
 
 ### Convenzione Archivia Lite (legacy, supportata)
 
 ```
-<numero>/                                ← es. 0001/
-├── master/                              ← DNG/RAW          → ARCHIVE
-├── calibrato/                           ← TIFF             → SERVICE
-├── derivato/                            ← JPEG             → HIGH
-└── icc/                                 ← profili colore   → STORAGE
+<numero>/
+├── master/     → ARCHIVE
+├── calibrato/  → SERVICE
+└── derivato/   → HIGH
 ```
 
-In entrambi i casi il `USE` METS è determinato in priorità dall'**estensione**
-del file (più affidabile del nome cartella), con fallback al nome cartella.
-
-## Nomenclatura dei file
-
-PND/ICDP:
+### Nome file PND
 
 ```
 <CodiceIstituto>+<CodiceOggetto>+<NumeroProgressivo>.<estensione>
 ```
 
-- `CodiceIstituto`: codice ISIL / ISTAT / SBN / RISM dell'istituto (senza spazi
-  né "+").
-- `CodiceOggetto`: identificativo univoco dell'unità documentaria (senza spazi
-  né "+").
-- `NumeroProgressivo`: **5 cifre numeriche** con zero padding (fino a 99 999
-  file per oggetto).
+- `NumeroProgressivo`: **5 cifre** con zero padding (`00001`–`99999`).
+- Recto/verso: non nel nome file. Vive nei metadati METS (`structMap LABEL`)
+  e nel foglio Excel (`label`, `lato`).
+- Il `USE` METS è determinato dall'**estensione** del file (priorità) con
+  fallback al nome cartella.
 
-Esempio: `IT-RMB576+PFR2_4+00001.tif`.
+---
 
-Filza legge il `NumeroProgressivo` direttamente dal nome del file: se i file
-sono già nominati correttamente vengono ordinati in base al loro progressivo,
-non riscritti. Solo se il nome non è conforme Filza rinumera per posizione
-nell'array (anche in quel caso a 5 cifre).
-
-L'informazione **recto/verso** non sta nel nome file (per essere PND-strict):
-sta nei metadati METS (`structMap`, attributo `LABEL`) e nel foglio
-`Scansioni` del file Excel descrittivo (campi `label` e `lato`).
-
-## Requisiti
-
-- Browser moderno: **Chrome 86+, Edge 86+**. Su Firefox/Safari funziona solo
-  l'import per drag&drop (no `showDirectoryPicker`).
-- Connessione internet solo per la validazione tramite l'API Cineca.
-
-## Avvio
-
-```bash
-# Con Python
-python -m http.server 8080
-
-# Con Node.js
-npx serve .
-
-# Oppure aprendo direttamente index.html (alcune funzioni richiedono http://)
-```
-
-Poi aprire `http://localhost:8080`.
-
-## Workflow
-
-1. **Configura un Ente**: codice ISIL/ISTAT/SBN/RISM, nome dell'archivio,
-   diritti, attrezzatura. I dati restano in `localStorage`.
-2. **Trascina la cartella PND** (`IT-RMB576+PFR2_4/`). Filza riconosce
-   automaticamente codice istituto e codice oggetto dal nome cartella.
-3. **Compila i metadati**: titolo, descrizione, datazione, ecc. (oppure importa
-   il file Excel `MetadatiObbligatori_v2.xlsx`).
-4. **Valida** contro l'API Cineca METS ECO-MiC.
-5. **Esporta** l'XML, oppure scarica uno ZIP completo (XML + scansioni +
-   log + checksum).
-
-## Struttura XML prodotto
+## Struttura dell'XML prodotto
 
 Schema METS ECO-MiC 1.2:
 
-- `metsHdr` con tre `agent` obbligatori: CREATOR, CUSTODIAN, IPOWNER.
-- `dmdSec` MODS: identificatori (logicalId, conservativeId, conservativeIdAuthority,
-  relationId), typeOfResource, titleInfo, abstract, name (Soggetto Produttore +
-  Soggetto Conservatore), originInfo, physicalDescription, location, relatedItem.
-- `amdSec` con `techMD` NISO-MIX per ogni file, `rightsMD` METSRIGHTS e DC.
-- `fileSec` strutturato nidificato: `INTERNAL > TEXT > [ARCHIVE | SERVICE | HIGH | STORAGE]`.
-- `structMap TYPE="PHYSICAL"` con `div TYPE="FOLDER"` e `div TYPE="FILE"` per
-  ogni scansione (con `LABEL`, `ORDER`, `ID`).
+| Sezione | Contenuto |
+|---------|-----------|
+| `metsHdr` | CREATOR (responsabile digitalizzazione), CUSTODIAN (ente conservatore), IPOWNER |
+| `dmdSec` (MODS) | logicalId, conservativeId, relationId, typeOfResource, titleInfo, abstract, name (Soggetto Produttore + Conservatore), originInfo, physicalDescription, language, location, relatedItem (fondo, serie) |
+| `amdSec` | `techMD` NISO-MIX per ogni file (scanner, DPI, bit depth, color space, data scansione); `rightsMD` METSRIGHTS; `rightsMD` DCT (license + rights) |
+| `fileSec` | `INTERNAL > TEXT > [ARCHIVE \| SERVICE \| HIGH \| STORAGE]` |
+| `structMap` | TYPE="PHYSICAL", `div TYPE="FOLDER"` con `div TYPE="FILE"` (LABEL, ORDER, ID) per ogni scansione |
 
-## Mappatura cartella → fileGrp `USE`
+---
 
-| Estensione file | Cartella PND | Cartella Archivia | `USE` METS |
-|-----------------|--------------|-------------------|------------|
-| `.dng`, `.raw`  | `dng/`       | `master/`         | `ARCHIVE`  |
-| `.tif`, `.tiff` | `tiff/`      | `calibrato/`      | `SERVICE`  |
-| `.jpg`, `.jpeg`, `.png` | `jpg/` | `derivato/`     | `HIGH`     |
-| `.icc`, `.icm`  | `icc/`       | `icc/`            | `STORAGE`  |
+## Note sul campo `mods:recordContentSource`
 
-Cartelle `logs/`, `mets/`, `log/`, `metadata/` sono ignorate (non finiscono in
-fileSec — i file in `mets/` sono output di Filza, non input).
+Il campo `record_content_source` nell'Excel deve contenere un **codice registrato
+in ECO-MiC/ICDP** (es. `SAN`, `SBN`, `SIGECWEB`). Valori non registrati
+causano un errore di validazione Cineca. Contattare ICDP per il codice corretto.
 
-## Differenze rispetto ad Archivia Lite
+---
 
-- **Nome software** centralizzato in `app.js` (`APP_NAME`, `APP_VERSION`).
-- **Parsing nome cartella PND** (`METSGenerator.parseFolderName`): se la cartella
-  si chiama `IT-XX+OGGETTO`, codice istituto e codice oggetto sono presi
-  automaticamente.
-- **Parsing nome file PND** (`METSGenerator.parseFileName`): il numero
-  progressivo viene letto dal nome del file (5 cifre), non rigenerato per
-  posizione. Tollera anche il formato legacy `0001r`/`0002v`.
-- **Mapping USE per estensione**, indipendente dal nome cartella.
-- **Padding a 5 cifre** (era 4) come prescritto dalle linee guida PND.
-- Categorie cartelle estese: `dng/`, `tiff/`, `jpg/` riconosciute oltre alle
-  legacy `master/`, `calibrato/`, `derivato/`.
+## File
 
-## Limiti noti
+```
+filza/
+├── index.html              Entry point (carica CDN + script locali)
+├── css/
+│   └── styles.css          Stili
+├── js/
+│   ├── app.js              UI React (entrambi i tab)
+│   ├── mets-generator.js   Generatore METS da struttura cartelle
+│   ├── excel-processor.js  Parser Excel (SheetJS) + generatore METS batch
+│   └── api-validator.js    Client API Cineca
+├── avvia_filza.bat         Launcher Windows (avvia server + Edge)
+├── filza_server.ps1        Server HTTP PowerShell
+├── GUIDA_UTENTE.txt        Guida per archivisti non tecnici
+├── README.md               Questo file
+└── CLAUDE.md               Istruzioni per agenti AI
+```
 
-- Import/export Excel non ancora implementato (in roadmap, vedi
-  `MetadatiObbligatori_v2.xlsx` come schema target).
-- Estrazione automatica EXIF/MIX dai file: oggi i campi MIX vengono dai default
-  dell'entità configurata, non dal file stesso (libreria `exifr` in roadmap).
-- L'export ZIP della cartella completa è in roadmap; oggi esporta solo XML.
-- L'API Cineca di validazione può essere bloccata da CORS in alcuni contesti.
+**Stack:** HTML + JS vanilla + React 18 via CDN + `htm` (JSX senza Babel) +
+SheetJS 0.20 via CDN per la lettura Excel.
 
-## Riferimenti
+---
+
+## Dipendenze CDN
+
+| Libreria | Versione | Uso |
+|----------|----------|-----|
+| React + ReactDOM | 18 | UI |
+| htm | 3 | Template literals JSX-like |
+| SheetJS (xlsx) | 0.20.3 | Lettura file `.xlsx` |
+
+Nessuna dipendenza npm. Nessun build step.
+
+---
+
+## Riferimenti standard
 
 - [Profilo METS ECO-MiC 1.2 (ICDP-MiC)](https://github.com/icdp-digital-library/profilo-mets-ecomic)
-- [Linee guida ICDP-PND per la digitalizzazione](https://docs.italia.it/italia/icdp/icdp-pnd-digitalizzazione-docs/)
-- [METS standard (LoC)](http://www.loc.gov/standards/mets/)
-- [MODS standard (LoC)](http://www.loc.gov/standards/mods/)
-- [MIX standard (LoC)](http://www.loc.gov/standards/mix/)
-- [METSRIGHTS schema (Stanford)](https://www.loc.gov/standards/rights/METSRights.xsd)
+- [Linee guida ICDP-PND digitalizzazione](https://docs.italia.it/italia/icdp/icdp-pnd-digitalizzazione-docs/)
+- [API validazione Cineca](https://validavmetsecomic.prod.os01.ocp.cineca.it/api/v1/checkmetsecomic)
+- [METS (LoC)](http://www.loc.gov/standards/mets/) · [MODS (LoC)](http://www.loc.gov/standards/mods/) · [MIX (LoC)](http://www.loc.gov/standards/mix/)
+
+---
 
 ## Licenza
 
-EUPL 1.2.
-
-## Storia
-
-Filza è una nuova versione di [archivia-lite](https://github.com/...) (Archivia
-Project), riallineata alle linee guida ICDP-PND per la nomenclatura degli
-oggetti digitali e al profilo METS ECO-MiC 1.2.
+EUPL 1.2

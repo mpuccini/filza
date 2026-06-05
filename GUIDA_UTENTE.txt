@@ -1,0 +1,113 @@
+================================================================
+  FILZA — Generatore METS ECO-MiC 1.2
+  Progetto Arca del Lago
+================================================================
+
+
+AVVIO
+------
+Doppio clic su:  avvia_filza.bat
+
+Si apre automaticamente Microsoft Edge con l'applicazione.
+La prima volta potrebbe comparire un avviso di sicurezza Windows:
+  → clicca "Ulteriori informazioni" → "Esegui comunque"
+
+Per fermare: chiudi la finestra "Filza Server" nella barra delle
+applicazioni (in basso), poi chiudi Edge.
+
+
+REQUISITI
+----------
+  • Windows 10 o Windows 11
+  • Microsoft Edge o Google Chrome
+    (Firefox e altri browser non supportano l'accesso alle cartelle)
+  • Connessione internet
+    (per caricare i componenti e per la validazione ECO-MiC Cineca)
+
+
+UTILIZZO PASSO PER PASSO
+--------------------------
+1. Apri il tab "Importa da Excel"
+
+2. Trascina il file Excel compilato dagli archivisti
+   (Modello_MetadatiScansioni.xlsx) nella zona azzurra,
+   oppure clicca per sfogliare.
+
+3. Clicca "Seleziona cartella root…" e scegli la cartella
+   che contiene le sottocartelle delle unità documentarie.
+   La struttura attesa è:
+     CartellaPrincipale/
+       IT-XXXXX+COD001/   ← unità documentaria
+         dng/
+         tiff/
+         jpg/
+       IT-XXXXX+COD002/
+         ...
+
+4. (Facoltativo) Abilita la validazione ECO-MiC Cineca.
+   Aggiunge circa 2-3 secondi per unità.
+   NOTA: il campo "record_content_source" nell'Excel deve
+   contenere un codice registrato in ECO-MiC (es. SAN, SBN).
+   Per il codice corretto contattare il responsabile ICDP.
+
+5. Clicca "Avvia elaborazione".
+
+6. Attendi il completamento. Per ogni unità viene creato:
+     IT-XXXXX+COD001/mets/IT-XXXXX+COD001.xml
+
+7. Al termine, clicca "Esporta log CSV" per salvare
+   un riepilogo con stato e risultati di validazione.
+
+
+RIPRESA DOPO INTERRUZIONE
+--------------------------
+Se il processo si interrompe (es. chiudi il browser per errore):
+1. Riavvia filza (avvia_filza.bat)
+2. Carica lo stesso file Excel e seleziona la stessa cartella root
+3. Clicca "↩ Riprendi dal checkpoint"
+Filza riprenderà dall'unità dove si era fermato.
+
+
+PROBLEMI FREQUENTI
+--------------------
+• "Il browser non supporta la selezione di cartelle"
+  → Usa Microsoft Edge o Google Chrome (non Firefox)
+
+• Il browser non si apre automaticamente
+  → Apri Edge manualmente e vai su: http://localhost:8080
+
+• Errore "Impossibile avviare il server"
+  → Installa Python (gratuito, senza account amministratore):
+    https://apps.microsoft.com/store/detail/python-312/9NCVDN91XZQP
+  → Oppure riavvia il computer e riprova
+
+• Validazione ECO-MiC fallisce su "recordContentSource"
+  → Il valore deve essere un codice registrato in ICDP.
+    Contatta il responsabile del progetto per il codice corretto.
+
+• Validazione ECO-MiC non disponibile
+  → Controlla la connessione internet
+  → La validazione richiede il server HTTP (avvia_filza.bat)
+    non funziona aprendo index.html direttamente
+
+
+CONTENUTO DELLA CARTELLA
+--------------------------
+  index.html          — applicazione web
+  app.js              — interfaccia utente
+  mets-generator.js   — generatore XML METS (modalità singola cartella)
+  excel-processor.js  — importazione Excel e generazione batch
+  api-validator.js    — validazione ECO-MiC con API Cineca
+  styles.css          — stili grafici
+  avvia_filza.bat     — avvio su Windows (questo file)
+  filza_server.ps1    — server HTTP PowerShell (usato automaticamente)
+  README.txt          — questo file
+
+
+STANDARD DI RIFERIMENTO
+-------------------------
+  ECO-MiC 1.2:   https://github.com/icdp-digital-library/profilo-mets-ecomic
+  PND/ICDP:       https://docs.italia.it/italia/icdp/icdp-pnd-digitalizzazione-docs/
+  API validazione: https://validavmetsecomic.prod.os01.ocp.cineca.it/
+
+================================================================

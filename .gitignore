@@ -9,17 +9,20 @@
 *.swp
 *~
 
-# Logs
-*.log
-npm-debug.log*
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
 
-# Output di test / sample locali
-test-output/
-*.local.json
-
-# Eventuali installazioni di librerie (CDN-only, ma se in futuro npm)
+# Node
 node_modules/
 package-lock.json
+npm-debug.log*
+
+# Output locali di test
+test-output/
+*.local.json
 
 # Backup
 *.bak

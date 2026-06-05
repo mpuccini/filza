@@ -1578,5 +1578,578 @@ function App() {
     </div>`;
 }
 
+// ============================================================================
+// ExcelImportTab — Importazione batch da Excel
+// ============================================================================
+
+/**
+ * Dropzone per file .xlsx (diversa dalla FolderDropZone che accetta cartelle).
+ */
+function ExcelFileDropZone(props) {
+    var onFileLoaded = props.onFileLoaded;
+    var ref1 = useState(false); var isDragOver = ref1[0]; var setIsDragOver = ref1[1];
+    var ref2 = useState(false); var loading = ref2[0]; var setLoading = ref2[1];
+    var fileInputRef = useRef(null);
+
+    function processFile(file) {
+        if (!file) return;
+        if (!file.name.match(/\.xlsx?$/i)) { alert('Seleziona un file Excel (.xlsx)'); return; }
+        setLoading(true);
+        file.arrayBuffer().then(function(buf) {
+            try {
+                var data = ExcelParser.parse(buf);
+                onFileLoaded({ name: file.name, size: file.size, data: data });
+            } catch (err) {
+                alert('Errore nella lettura dell\'Excel: ' + err.message);
+            }
+        }).catch(function(e) { alert('Errore: ' + e.message); })
+          .finally(function() { setLoading(false); });
+    }
+
+    function handleDrop(e) {
+        e.preventDefault(); setIsDragOver(false);
+        var file = e.dataTransfer.files[0];
+        processFile(file);
+    }
+    function handleFile(e) { processFile(e.target.files[0]); if (fileInputRef.current) fileInputRef.current.value = ''; }
+
+    return html`<div
+        className=${'drop-zone' + (isDragOver ? ' dragover' : '')}
+        style=${{ borderColor: '#3b82f6', background: isDragOver ? '#eff6ff' : '#f8faff' }}
+        onDragOver=${function(e) { e.preventDefault(); setIsDragOver(true); }}
+        onDragLeave=${function() { setIsDragOver(false); }}
+        onDrop=${handleDrop}
+        onClick=${function() { fileInputRef.current && fileInputRef.current.click(); }}
+    >
+        <input ref=${fileInputRef} type="file" accept=".xlsx,.xls" onChange=${handleFile} style=${{ display:'none' }} />
+        ${loading ? html`
+            <div className="drop-zone-icon"><${Icons.RefreshCw} /></div>
+            <div className="drop-zone-text">Lettura Excel in corso...</div>
+        ` : html`
+            <div className="drop-zone-icon" style=${{ color:'#3b82f6' }}>
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+                    <polyline points="10 9 9 9 8 9"/>
+                </svg>
+            </div>
+            <div className="drop-zone-text">Trascina il file <strong>Excel compilato</strong> (.xlsx)</div>
+            <div className="drop-zone-hint">Il file deve contenere i fogli "Documento" e "Scansioni". Click per sfogliare.</div>
+        `}
+    </div>`;
+}
+
+/**
+ * Tabella di avanzamento del batch.
+ */
+function BatchProgressTable(props) {
+    var results = props.results;
+    var currentIndex = props.currentIndex;
+    var total = props.total;
+
+    var ref1 = useState(null); var expanded = ref1[0]; var setExpanded = ref1[1];
+
+    var done    = results.filter(function(r) { return r && r.status === 'done'; }).length;
+    var errors  = results.filter(function(r) { return r && r.status === 'error'; }).length;
+    var valErr  = results.filter(function(r) { return r && r.validation && r.validation.status === 'invalid'; }).length;
+    var pct     = total > 0 ? Math.round(((done + errors) / total) * 100) : 0;
+
+    var visible = results.filter(Boolean).slice(-100);
+
+    function valBadge(r) {
+        if (!r || !r.validation) return null;
+        var s = r.validation.status;
+        var toggle = function() { setExpanded(expanded === r.index ? null : r.index); };
+        if (s === 'success') return html`<span className="status-badge success">✓ valido</span>`;
+        if (s === 'invalid') return html`<span className="status-badge warning" style=${{ cursor:'pointer' }} onClick=${toggle}>⚠ ${r.validation.errorCount || '?'} err ▾</span>`;
+        if (s === 'error')   return html`<span className="status-badge error"   style=${{ cursor:'pointer' }} onClick=${toggle}>⚠ CORS/API ▾</span>`;
+        return html`<span className="status-badge" style=${{ background:'#e2e8f0', cursor:'pointer' }} onClick=${toggle}>⚠ ▾</span>`;
+    }
+
+    return html`<div className="card">
+        <div className="card-header">
+            <h3 className="card-title">Avanzamento — ${done + errors}/${total} unità</h3>
+            <span style=${{ fontSize:'13px', color:'#64748b' }}>${errors} err scrittura · ${valErr} non validi ECO-MiC</span>
+        </div>
+        <div style=${{ padding:'0 16px 12px' }}>
+            <div style=${{ height:'8px', background:'#e2e8f0', borderRadius:'4px', overflow:'hidden', marginBottom:'8px' }}>
+                <div style=${{ height:'100%', width: pct + '%', background: (errors + valErr) > 0 ? '#f59e0b' : '#22c55e', transition:'width .3s', borderRadius:'4px' }}></div>
+            </div>
+            <span style=${{ fontSize:'12px', color:'#64748b' }}>${pct}% completato</span>
+        </div>
+        <div style=${{ maxHeight:'500px', overflowY:'auto', borderTop:'1px solid #e2e8f0' }}>
+            <table className="log-table" style=${{ fontSize:'12px' }}>
+                <thead><tr><th>Unità documentaria</th><th>XML</th><th>Validazione ECO-MiC</th><th>Messaggio</th></tr></thead>
+                <tbody>
+                    ${visible.map(function(r) {
+                        var isActive = r.index === currentIndex;
+                        var isExp    = expanded === r.index;
+                        var val      = r.validation || {};
+                        var valErrs  = val.errors || [];
+                        return html`<${Fragment} key=${r.index}>
+                            <tr style=${{ background: isActive ? '#eff6ff' : isExp ? '#fefce8' : '' }}
+                                onClick=${function() { if (r.validation || r.error) setExpanded(isExp ? null : r.index); }}
+                                style2=${{ cursor: (r.validation || r.error) ? 'pointer' : 'default' }}>
+                                <td style=${{ fontFamily:'monospace', fontSize:'11px', whiteSpace:'nowrap' }}>${r.codIst}+${r.codOgg}</td>
+                                <td>
+                                    ${r.status === 'done'  && html`<span className="status-badge success">✓</span>`}
+                                    ${r.status === 'error' && html`<span className="status-badge error">✗</span>`}
+                                    ${(r.status === 'processing' || r.status === 'validating') && html`<span className="status-badge" style=${{ background:'#dbeafe',color:'#1d4ed8' }}>…</span>`}
+                                </td>
+                                <td>${valBadge(r)}</td>
+                                <td style=${{ color:'#64748b', maxWidth:'300px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                                    ${r.error || val.message || ''}
+                                </td>
+                            </tr>
+                            ${isExp && html`<tr>
+                                <td colSpan="4" style=${{ background:'#fefce8', padding:'10px 14px', borderBottom:'2px solid #fde68a' }}>
+                                    ${r.error && html`<div style=${{ marginBottom:'8px', color:'#dc2626' }}><strong>Errore scrittura:</strong> ${r.error}</div>`}
+                                    ${val.message && html`<div style=${{ marginBottom: valErrs.length ? '8px' : '0', color:'#78350f' }}>
+                                        <strong>Risposta validatore:</strong> ${val.message}
+                                    </div>`}
+                                    ${val.status === 'error' && html`<div style=${{ fontSize:'12px', color:'#64748b', background:'#fef3c7', border:'1px solid #fcd34d', borderRadius:'4px', padding:'8px', marginTop:'4px' }}>
+                                        ⚠ <strong>CORS / errore di rete.</strong> La validazione Cineca richiede che filza sia servita via HTTP (non da file://).<br/>
+                                        Lancia: <code style=${{ background:'#1e293b', color:'#e2e8f0', padding:'2px 6px', borderRadius:'3px' }}>python3 -m http.server 8080</code>
+                                        nella cartella filza, poi apri <code>http://localhost:8080</code> in Chrome.
+                                    </div>`}
+                                    ${valErrs.length > 0 && html`<div style=${{ display:'flex', flexDirection:'column', gap:'4px' }}>
+                                        <strong style=${{ fontSize:'11px', marginBottom:'4px', display:'block' }}>Errori ECO-MiC dal validatore Cineca:</strong>
+                                        ${valErrs.map(function(e, ei) { return html`<div key=${ei} style=${{ fontSize:'11px', fontFamily:'monospace', background:'#fff7ed', border:'1px solid #fed7aa', borderRadius:'4px', padding:'4px 8px' }}>
+                                            <strong>[${e.id}]</strong>${' '}
+                                            ${e.tag && html`<code style=${{ color:'#9333ea' }}>${e.tag}</code>`}${' '}
+                                            ${e.message || e.description || ''}
+                                            ${e.line && html`<span style=${{ color:'#94a3b8' }}> · ${e.line}</span>`}
+                                        </div>`; })}
+                                    </div>`}
+                                </td>
+                            </tr>`}
+                        <//>`;
+                    })}
+                </tbody>
+            </table>
+        </div>
+    </div>`;
+}
+
+/**
+ * Tab principale "Importa da Excel".
+ */
+function ExcelImportTab() {
+    // ── state ──────────────────────────────────────────────────────────────────
+    var r1 = useState(null);  var excelFile = r1[0]; var setExcelFile = r1[1];   // { name, size, data }
+    var r2 = useState(null);  var rootHandle = r2[0]; var setRootHandle = r2[1];
+    var r3 = useState(null);  var checkpoint = r3[0]; var setCheckpoint = r3[1]; // checkpoint esistente
+    var r4 = useState('idle');var phase = r4[0]; var setPhase = r4[1];           // idle | ready | running | paused | done
+    var r5 = useState([]);    var results = r5[0]; var setResults = r5[1];
+    var r6 = useState(-1);    var currentIdx = r6[0]; var setCurrentIdx = r6[1];
+    var r7 = useState(true);  var doValidate = r7[0]; var setDoValidate = r7[1];
+    var r8 = useState('');    var rootName = r8[0]; var setRootName = r8[1];
+
+    var stopRef = useRef(false);
+
+    // Controlla checkpoint al mount
+    useEffect(function() {
+        var cp = ExcelBatchProcessor.getCheckpoint();
+        if (cp && cp.total > 0 && cp.processedUpTo < cp.total) setCheckpoint(cp);
+    }, []);
+
+    // ── handlers ───────────────────────────────────────────────────────────────
+    function handleExcelLoaded(file) {
+        setExcelFile(file);
+        setResults([]);
+        setCurrentIdx(-1);
+        setPhase('ready');
+    }
+
+    function handleSelectRoot() {
+        if (!('showDirectoryPicker' in window)) {
+            alert('Questo browser non supporta la selezione di cartelle. Usa Chrome o Edge.');
+            return;
+        }
+        window.showDirectoryPicker().then(function(handle) {
+            setRootHandle(handle);
+            setRootName(handle.name);
+        }).catch(function(e) { if (e.name !== 'AbortError') alert('Errore: ' + e.message); });
+    }
+
+    function handleReset() {
+        stopRef.current = true;
+        setExcelFile(null); setRootHandle(null); setRootName('');
+        setResults([]); setCurrentIdx(-1); setPhase('idle'); setCheckpoint(null);
+        ExcelBatchProcessor.clearCheckpoint();
+    }
+
+    function handleDiscardCheckpoint() {
+        ExcelBatchProcessor.clearCheckpoint();
+        setCheckpoint(null);
+    }
+
+    function handleExportCsv() {
+        var header = [
+            'Indice', 'Codice Istituto', 'Codice Oggetto', 'Unità Documentaria',
+            'Stato XML', 'Errore Scrittura',
+            'Validazione ECO-MiC', 'N. Errori ECO-MiC', 'Messaggio Validazione',
+            'Dettaglio Errori'
+        ];
+        var rows = [header];
+        results.forEach(function(r) {
+            if (!r) return;
+            var val      = r.validation || {};
+            var errList  = (val.errors || [])
+                .map(function(e) { return '[' + (e.id || '?') + '] ' + (e.message || e.description || ''); })
+                .join(' | ');
+            rows.push([
+                r.index + 1,
+                r.codIst || '',
+                r.codOgg || '',
+                (r.codIst || '') + '+' + (r.codOgg || ''),
+                r.status  || '',
+                r.error   || '',
+                val.status || (r.status === 'done' && !r.validation ? 'non validato' : '-'),
+                val.errorCount != null ? val.errorCount : '',
+                val.message || '',
+                errList
+            ]);
+        });
+
+        // CSV con BOM UTF-8 (per Excel italiano)
+        var csv = '﻿' + rows.map(function(row) {
+            return row.map(function(cell) {
+                return '"' + String(cell == null ? '' : cell).replace(/"/g, '""') + '"';
+            }).join(',');
+        }).join('\r\n');
+
+        var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        var url  = URL.createObjectURL(blob);
+        var a    = document.createElement('a');
+        a.href   = url;
+        a.download = 'filza-risultati-' + new Date().toISOString().slice(0, 10) + '.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    async function startProcessing(useCheckpoint) {
+        if (!excelFile || !rootHandle) return;
+        stopRef.current = false;
+        setPhase('running');
+
+        var docRows     = excelFile.data.docRows;
+        var scansByUnit = excelFile.data.scansByUnit;
+
+        // Leggi il checkpoint fresco da localStorage (cattura anche le pause mid-session)
+        var startFrom   = 0;
+        var existingRes = null;
+        if (useCheckpoint) {
+            var cp = ExcelBatchProcessor.getCheckpoint();
+            if (cp && cp.processedUpTo > 0) {
+                startFrom   = cp.processedUpTo;
+                existingRes = cp.results;
+            }
+        }
+
+        var localResults = existingRes ? existingRes.slice() : new Array(docRows.length).fill(null);
+        setResults(localResults.slice());
+
+        await ExcelBatchProcessor.run(
+            docRows, scansByUnit, rootHandle,
+            { startFromIndex: startFrom, validate: doValidate, validationDelay: 400, existingResults: existingRes },
+            function(progress) {
+                // Aggiorna state React ad ogni unità
+                localResults[progress.index] = progress.result || { index: progress.index, codIst: progress.codIst, codOgg: progress.codOgg, status: progress.status };
+                setResults(localResults.slice());
+                setCurrentIdx(progress.index);
+            },
+            stopRef
+        );
+
+        setPhase(stopRef.current ? 'paused' : 'done');
+    }
+
+    function handlePause() {
+        stopRef.current = true;
+        setPhase('paused');
+    }
+
+    // ── render ──────────────────────────────────────────────────────────────────
+    var canStart = excelFile && rootHandle;
+    var docCount  = excelFile ? excelFile.data.docRows.length : 0;
+    var scanCount = excelFile ? excelFile.data.totalScans : 0;
+    var done  = results.filter(function(r) { return r && r.status === 'done'; }).length;
+    var errCount = results.filter(function(r) { return r && r.status === 'error'; }).length;
+
+    return html`<div>
+
+        ${/* Banner checkpoint residuo */
+        checkpoint && phase === 'idle' && html`
+            <div className="alert alert-warning" style=${{ marginBottom:'16px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <span><${Icons.AlertCircle} /> Sessione precedente interrotta: ${checkpoint.processedUpTo}/${checkpoint.total} unità elaborate.
+                    Carica lo stesso Excel e la stessa cartella per riprendere.
+                </span>
+                <button className="btn btn-secondary btn-sm" onClick=${handleDiscardCheckpoint} style=${{ marginLeft:'12px', whiteSpace:'nowrap' }}>
+                    Scarta
+                </button>
+            </div>
+        `}
+
+        ${/* Step 1: carica Excel */
+        phase === 'idle' || phase === 'ready' ? html`
+            <div className="card">
+                <div className="card-header"><h3 className="card-title">1 · Carica il file Excel compilato</h3></div>
+                <div style=${{ padding:'16px' }}>
+                    ${!excelFile ? html`
+                        <${ExcelFileDropZone} onFileLoaded=${handleExcelLoaded} />
+                    ` : html`
+                        <div className="alert" style=${{ background:'#f0fdf4', border:'1px solid #86efac', borderRadius:'8px', padding:'12px 16px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                            <span>📄 <strong>${excelFile.name}</strong> — ${docCount} unità documentarie · ${scanCount} scansioni totali</span>
+                            <button className="btn btn-secondary btn-sm" onClick=${function() { setExcelFile(null); setPhase('idle'); }}>Cambia</button>
+                        </div>
+                    `}
+                </div>
+            </div>
+
+            <div className="card">
+                <div className="card-header"><h3 className="card-title">2 · Seleziona la cartella root delle scansioni</h3></div>
+                <div style=${{ padding:'16px' }}>
+                    <p style=${{ color:'#64748b', fontSize:'13px', marginBottom:'12px' }}>
+                        La cartella deve contenere le sottocartelle nel formato <code>CodIst+CodOgg/</code> (o una cartella intermedia per istituto),
+                        ciascuna con le sottocartelle <code>dng/</code>, <code>tiff/</code>, <code>jpg/</code>.
+                        La sottocartella <code>mets/</code> verrà creata automaticamente.
+                    </p>
+                    ${!rootHandle ? html`
+                        <button className="btn btn-primary" onClick=${handleSelectRoot}>
+                            <${Icons.Folder} /> Seleziona cartella root…
+                        </button>
+                    ` : html`
+                        <div className="alert" style=${{ background:'#f0fdf4', border:'1px solid #86efac', borderRadius:'8px', padding:'12px 16px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                            <span>📁 <strong>${rootName}</strong></span>
+                            <button className="btn btn-secondary btn-sm" onClick=${handleSelectRoot}>Cambia</button>
+                        </div>
+                    `}
+                </div>
+            </div>
+
+            ${canStart && html`
+                <div className="card">
+                    <div className="card-header"><h3 className="card-title">3 · Opzioni e avvio</h3></div>
+                    <div style=${{ padding:'16px' }}>
+                        <label style=${{ display:'flex', alignItems:'flex-start', gap:'8px', marginBottom:'16px', cursor:'pointer' }}>
+                            <input type="checkbox" checked=${doValidate} onChange=${function(e) { setDoValidate(e.target.checked); }} style=${{ marginTop:'3px' }} />
+                            <span>
+                                Valida ogni XML con l'API ECO-MiC Cineca
+                                <small style=${{ display:'block', color:'#64748b', marginTop:'2px' }}>
+                                    Aggiunge ~1–3 s per unità. <strong>Richiede server HTTP</strong> — non funziona aprendo index.html direttamente (file://).<br/>
+                                    Per abilitarla: <code style=${{ background:'#1e293b', color:'#e2e8f0', padding:'1px 5px', borderRadius:'3px', fontSize:'11px' }}>python3 -m http.server 8080</code> nella cartella filza, poi apri <code style=${{ fontSize:'11px' }}>http://localhost:8080</code>.
+                                </small>
+                            </span>
+                        </label>
+                        <div style=${{ display:'flex', gap:'8px' }}>
+                            <button className="btn btn-primary" style=${{ padding:'10px 24px', fontSize:'15px' }}
+                                onClick=${function() { startProcessing(false); }}>
+                                <${Icons.RefreshCw} /> Avvia elaborazione (${docCount} unità)
+                            </button>
+                            ${checkpoint && html`
+                                <button className="btn btn-secondary" style=${{ padding:'10px 18px' }}
+                                    onClick=${function() { startProcessing(true); }}>
+                                    ↩ Riprendi dal checkpoint (da unità ${checkpoint.processedUpTo + 1})
+                                </button>
+                            `}
+                        </div>
+                    </div>
+                </div>
+            `}
+        ` : null}
+
+        ${/* Fase running / paused / done */
+        (phase === 'running' || phase === 'paused' || phase === 'done') && html`<${Fragment}>
+            <div style=${{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'16px' }}>
+                <h3 style=${{ margin:0 }}>
+                    ${phase === 'running' ? '⏳ Elaborazione in corso…' : ''}
+                    ${phase === 'paused'  ? '⏸ Elaborazione sospesa' : ''}
+                    ${phase === 'done'    ? '✅ Elaborazione completata' : ''}
+                </h3>
+                <div style=${{ display:'flex', gap:'8px', flexWrap:'wrap' }}>
+                    ${phase === 'running' && html`
+                        <button className="btn btn-secondary" onClick=${handlePause}>⏸ Sospendi</button>
+                    `}
+                    ${phase === 'paused' && html`
+                        <button className="btn btn-primary" onClick=${function() { startProcessing(true); }}>▶ Riprendi</button>
+                    `}
+                    ${(phase === 'done' || phase === 'paused') && results.filter(Boolean).length > 0 && html`
+                        <button className="btn btn-secondary" onClick=${handleExportCsv}
+                            title="Scarica un file CSV con stato e validazione di ogni unità elaborata">
+                            <${Icons.Download} /> Esporta log CSV
+                        </button>
+                    `}
+                    <button className="btn btn-secondary" onClick=${handleReset}>
+                        <${Icons.RefreshCw} /> Nuovo batch
+                    </button>
+                </div>
+            </div>
+
+            ${phase === 'done' && html`
+                <div style=${{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px,1fr))', gap:'10px', marginBottom:'16px' }}>
+                    ${[
+                        { label:'XML salvati',     val: done,    color:'#16a34a', bg:'#f0fdf4' },
+                        { label:'Errori scrittura',val: errCount, color: errCount  > 0 ? '#dc2626' : '#64748b', bg: errCount  > 0 ? '#fef2f2' : '#f8fafc' },
+                        { label:'Validi ECO-MiC',  val: results.filter(function(r){ return r && r.validation && r.validation.status === 'success'; }).length, color:'#16a34a', bg:'#f0fdf4' },
+                        { label:'Non validi',       val: results.filter(function(r){ return r && r.validation && r.validation.status === 'invalid'; }).length, color:'#d97706', bg:'#fffbeb' },
+                        { label:'Senza validaz.',  val: results.filter(function(r){ return r && r.status === 'done' && !r.validation; }).length, color:'#64748b', bg:'#f8fafc' },
+                    ].map(function(s, i) { return html`<div key=${i} style=${{ background: s.bg, border:'1px solid #e2e8f0', borderRadius:'8px', padding:'12px', textAlign:'center' }}>
+                        <div style=${{ fontSize:'26px', fontWeight:'bold', color: s.color }}>${s.val}</div>
+                        <div style=${{ fontSize:'12px', color:'#64748b', marginTop:'2px' }}>${s.label}</div>
+                    </div>`; })}
+                </div>
+            `}
+
+            <${BatchProgressTable}
+                results=${results}
+                currentIndex=${currentIdx}
+                total=${excelFile ? excelFile.data.docRows.length : 0}
+            />
+        <//>`}
+    </div>`;
+}
+
+// ── Aggiorna App per includere il nuovo tab ────────────────────────────────────
+// (Monkey-patch: ridefinisce App aggiungendo il tab Excel al render esistente)
+
 // Mount the app
-ReactDOM.createRoot(document.getElementById('root')).render(html`<${App} />`);
+ReactDOM.createRoot(document.getElementById('root')).render(html`<${AppWithExcel} />`);
+
+function AppWithExcel() {
+    // Riutilizza tutto lo state di App tramite la stessa struttura,
+    // aggiungendo solo il tab Excel.
+    var ref1 = useState('excel'); var activeTab = ref1[0]; var setActiveTab = ref1[1];
+    var ref2 = useState([]); var archives = ref2[0]; var setArchives = ref2[1];
+    var ref3 = useState(null); var currentArchive = ref3[0]; var setCurrentArchive = ref3[1];
+    var ref4 = useState([]); var logs = ref4[0]; var setLogs = ref4[1];
+    var ref5 = useState(null); var loadedFolder = ref5[0]; var setLoadedFolder = ref5[1];
+    var ref6 = useState({}); var documentMetadata = ref6[0]; var setDocumentMetadata = ref6[1];
+    var ref7 = useState(''); var generatedXml = ref7[0]; var setGeneratedXml = ref7[1];
+    var ref8 = useState(null); var validationResult = ref8[0]; var setValidationResult = ref8[1];
+    var ref9 = useState(false); var isValidating = ref9[0]; var setIsValidating = ref9[1];
+
+    useEffect(function() {
+        var a = Storage.getArchives(); setArchives(a);
+        var id = Storage.getSetting('currentArchiveId');
+        if (id) { var arc = a.find(function(x) { return x.id === id; }); if (arc) setCurrentArchive(arc); }
+        setLogs(Storage.getLogs());
+    }, []);
+
+    function handleAddArchive(d) { var a = Storage.createArchive(d); setArchives(Storage.getArchives()); setCurrentArchive(a); Storage.setSetting('currentArchiveId', a.id); }
+    function handleEditArchive(id, d) { var a = Storage.updateArchive(id, d); setArchives(Storage.getArchives()); if (currentArchive && currentArchive.id === id) setCurrentArchive(a); }
+    function handleDeleteArchive(id) { if (!confirm('Eliminare questo archivio?')) return; Storage.deleteArchive(id); setArchives(Storage.getArchives()); if (currentArchive && currentArchive.id === id) { setCurrentArchive(null); Storage.setSetting('currentArchiveId', null); } }
+    function handleSelectArchive(a) { setCurrentArchive(a); Storage.setSetting('currentArchiveId', a.id); }
+    function handleFolderLoaded(folder) {
+        setLoadedFolder(folder); setGeneratedXml(''); setValidationResult(null);
+        var m = { folderNumber: folder.name };
+        if (folder.pndParsed) { m.folderNumber = folder.pndParsed.codiceOggetto; m.logicalId = folder.pndParsed.codiceOggetto; m.codiceIstituto = folder.pndParsed.codiceIstituto; m.codiceOggetto = folder.pndParsed.codiceOggetto; }
+        setDocumentMetadata(m);
+    }
+    var handleGenerateXml = useCallback(function() {
+        if (!currentArchive || !loadedFolder) return;
+        var d = Object.assign({}, documentMetadata, { folderNumber: loadedFolder.name });
+        if (loadedFolder.pndParsed) d.logicalId = loadedFolder.pndParsed.codiceOggetto;
+        setGeneratedXml(METSGenerator.generate(currentArchive, d, loadedFolder.structure));
+        setValidationResult(null);
+    }, [currentArchive, loadedFolder, documentMetadata]);
+    useEffect(function() { if (currentArchive && loadedFolder && documentMetadata.title) handleGenerateXml(); }, [currentArchive, loadedFolder, documentMetadata, handleGenerateXml]);
+    function handleValidate() {
+        if (!generatedXml) return; setIsValidating(true); setValidationResult(null);
+        METSValidator.validate(generatedXml, currentArchive.code + '_' + loadedFolder.name + '_mets.xml')
+            .then(function(r) { setValidationResult(METSValidator.formatResult(r)); })
+            .catch(function(e) { setValidationResult({ status:'error', title:'Errore', message: e.message, details:null }); })
+            .finally(function() { setIsValidating(false); });
+    }
+    function handleExportXml() {
+        if (!generatedXml) return;
+        var fn = currentArchive.code + '_' + loadedFolder.name + '_mets.xml';
+        var url = URL.createObjectURL(new Blob([generatedXml], { type:'application/xml' }));
+        var a = document.createElement('a'); a.href = url; a.download = fn; a.click(); URL.revokeObjectURL(url);
+        Storage.addLog({ folderName: loadedFolder.name, archiveCode: currentArchive.code, status:'success', message: fn + ' esportato' });
+        setLogs(Storage.getLogs());
+    }
+    function handleExportDb() {
+        var url = URL.createObjectURL(new Blob([JSON.stringify(Storage.exportData(), null, 2)], { type:'application/json' }));
+        var a = document.createElement('a'); a.href = url; a.download = 'filza-export-' + new Date().toISOString().slice(0,10) + '.json'; a.click(); URL.revokeObjectURL(url);
+    }
+    function handleImportDb(data, mode) {
+        try { Storage.importData(data, mode); setArchives(Storage.getArchives()); setLogs(Storage.getLogs()); alert('Import OK'); } catch(e) { alert('Errore: ' + e.message); }
+    }
+    function handleReset() { setLoadedFolder(null); setDocumentMetadata({}); setGeneratedXml(''); setValidationResult(null); }
+    function handleClearLogs() { if (!confirm('Cancellare il log?')) return; Storage.clearLogs(); setLogs([]); }
+
+    var workflowSteps = [
+        { number:1, title:'Seleziona Archivio', description:"Scegli l'archivio", completed:!!currentArchive, active:!currentArchive },
+        { number:2, title:'Carica Cartella', description:'Trascina la cartella', completed:!!loadedFolder, active:!!currentArchive && !loadedFolder },
+        { number:3, title:'Compila Metadati', description:'Inserisci i dati', completed:!!documentMetadata.title, active:!!loadedFolder && !documentMetadata.title },
+        { number:4, title:'Esporta', description:'Genera e scarica', completed:false, active:!!generatedXml }
+    ];
+
+    return html`<div className="app-container">
+        <header className="header">
+            <h1>${APP_NAME} <span style=${{ fontSize:'14px', color:'#64748b', fontWeight:'normal' }}>${APP_TAGLINE} · v${APP_VERSION}</span></h1>
+            <div className="header-actions">
+                ${currentArchive && html`<span style=${{ color:'#64748b', fontSize:'14px' }}>Archivio: <strong>${currentArchive.code}</strong></span>`}
+            </div>
+        </header>
+
+        <div className="tabs">
+            <button className=${'tab' + (activeTab === 'excel' ? ' active' : '')} onClick=${function() { setActiveTab('excel'); }}>
+                📥 Importa da Excel
+            </button>
+            <button className=${'tab' + (activeTab === 'generate' ? ' active' : '')} onClick=${function() { setActiveTab('generate'); }}>
+                Genera METS (singolo)
+            </button>
+            <button className=${'tab' + (activeTab === 'archives' ? ' active' : '')} onClick=${function() { setActiveTab('archives'); }}>
+                Gestione Archivi
+            </button>
+            <button className=${'tab' + (activeTab === 'log' ? ' active' : '')} onClick=${function() { setActiveTab('log'); }}>
+                Log (${logs.length})
+            </button>
+        </div>
+
+        ${activeTab === 'excel' && html`<${ExcelImportTab} />`}
+
+        ${activeTab === 'generate' && html`<${Fragment}>
+            <div className="workflow-steps">
+                ${workflowSteps.map(function(step) {
+                    return html`<div key=${step.number} className=${'workflow-step' + (step.active ? ' active' : '') + (step.completed ? ' completed' : '')}>
+                        <div className="step-number">${step.completed ? html`<${Icons.Check} />` : step.number}</div>
+                        <div className="step-info"><h4>${step.title}</h4><p>${step.description}</p></div>
+                    </div>`;
+                })}
+            </div>
+            ${!currentArchive && html`<div className="alert alert-warning"><${Icons.AlertCircle} /><span>Seleziona un archivio dalla tab "Gestione Archivi".</span></div>`}
+            ${currentArchive && html`<${Fragment}>
+                ${!loadedFolder ? html`<${FolderDropZone} onFolderLoaded=${handleFolderLoaded} disabled=${!currentArchive} />`
+                : html`<${Fragment}>
+                    <div style=${{ display:'flex', justifyContent:'flex-end', marginBottom:'16px' }}>
+                        <button className="btn btn-secondary" onClick=${handleReset}><${Icons.RefreshCw} /> Nuova Cartella</button>
+                    </div>
+                    <div className="two-col-layout">
+                        <div>
+                            <${FolderStructureDisplay} folderName=${loadedFolder.name} structure=${loadedFolder.structure} />
+                            <${DocumentMetadataForm} folderNumber=${loadedFolder.name} metadata=${documentMetadata} onChange=${setDocumentMetadata} />
+                        </div>
+                        <div className="preview-column">
+                            ${generatedXml && html`<${Fragment}>
+                                <${XmlPreview} xml=${generatedXml} onValidate=${handleValidate} validationResult=${validationResult} isValidating=${isValidating} />
+                                <div style=${{ marginTop:'16px', display:'flex', gap:'8px', justifyContent:'flex-end' }}>
+                                    <button className="btn btn-success" onClick=${handleExportXml}><${Icons.Download} /> Esporta XML</button>
+                                </div>
+                            <//>`}
+                        </div>
+                    </div>
+                <//>`}
+            <//>`}
+        <//>`}
+
+        ${activeTab === 'archives' && html`<${ArchiveManager} archives=${archives} currentArchive=${currentArchive} onSelect=${handleSelectArchive} onAdd=${handleAddArchive} onEdit=${handleEditArchive} onDelete=${handleDeleteArchive} onImport=${handleImportDb} onExport=${handleExportDb} />`}
+
+        ${activeTab === 'log' && html`<${LogViewer} logs=${logs} archives=${archives} onClear=${handleClearLogs} />`}
+    </div>`;
+}
